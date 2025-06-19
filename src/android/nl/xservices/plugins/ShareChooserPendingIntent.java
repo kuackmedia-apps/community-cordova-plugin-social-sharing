@@ -9,8 +9,14 @@ public class ShareChooserPendingIntent extends BroadcastReceiver {
     public static String chosenComponent = null;
     @Override
     public void onReceive(Context context, Intent intent) {
-        if (intent.getExtras() != null) {
-            ShareChooserPendingIntent.chosenComponent = intent.getExtras().get(Intent.EXTRA_CHOSEN_COMPONENT).toString();
+        // Safely extract the chosen component to avoid NullPointerException
+        android.os.Bundle extras = intent.getExtras();
+        ShareChooserPendingIntent.chosenComponent = null;
+        if (extras != null) {
+            Object comp = extras.get(Intent.EXTRA_CHOSEN_COMPONENT);
+            if (comp != null) {
+                ShareChooserPendingIntent.chosenComponent = comp.toString();
+            }
         }
     }
 }
