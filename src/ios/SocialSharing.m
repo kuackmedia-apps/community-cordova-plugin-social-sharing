@@ -82,7 +82,7 @@ static NSString *const kShareOptionIPadCoordinates = @"iPadCoordinates";
     NSString *iPadCoordString = options[kShareOptionIPadCoordinates];
     NSArray *iPadCoordinates;
 
-    if (iPadCoordString != nil && iPadCoordString != [NSNull null]) {
+    if (iPadCoordString != nil && iPadCoordString != [NSNull null] && [iPadCoordString length] > 0) {
       iPadCoordinates = [iPadCoordString componentsSeparatedByString:@","];
     } else {
       iPadCoordinates = @[];
@@ -113,9 +113,9 @@ static NSString *const kShareOptionIPadCoordinates = @"iPadCoordinates";
         [activityItems addObject:[NSURL URLWithString:[urlString SSURLEncodedString]]];
     }
 
-    UIActivity *activity = [[UIActivity alloc] init];
-    NSArray *applicationActivities = [[NSArray alloc] initWithObjects:activity, nil];
-    UIActivityViewController *activityVC = [[UIActivityViewController alloc] initWithActivityItems:activityItems applicationActivities:applicationActivities];
+    __block UIViewController *_shareTopVC = nil;
+
+    UIActivityViewController *activityVC = [[UIActivityViewController alloc] initWithActivityItems:activityItems applicationActivities:nil];
     if (subject != (id)[NSNull null] && subject != nil) {
       [activityVC setValue:subject forKey:@"subject"];
     }
@@ -124,6 +124,10 @@ static NSString *const kShareOptionIPadCoordinates = @"iPadCoordinates";
       [activityVC setCompletionWithItemsHandler:^(NSString *activityType, BOOL completed, NSArray * returnedItems, NSError * activityError) {
         if (completed == YES || activityType == nil) {
             [self cleanupStoredFiles];
+        }
+        if (_shareTopVC) {
+          [_shareTopVC dismissViewControllerAnimated:NO completion:nil];
+          _shareTopVC = nil;
         }
         if (boolResponse) {
           [self.commandDelegate sendPluginResult:[CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsBool:completed]
@@ -135,11 +139,14 @@ static NSString *const kShareOptionIPadCoordinates = @"iPadCoordinates";
         }
       }];
     } else {
-      // let's suppress this warning otherwise folks will start opening issues while it's not relevant
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
         [activityVC setCompletionHandler:^(NSString *activityType, BOOL completed) {
           if (completed == YES || activityType == nil) {
               [self cleanupStoredFiles];
+          }
+          if (_shareTopVC) {
+            [_shareTopVC dismissViewControllerAnimated:NO completion:nil];
+            _shareTopVC = nil;
           }
           NSDictionary * result = @{@"completed":@(completed), @"app":activityType == nil ? @"" : activityType};
           CDVPluginResult * pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:result];
@@ -154,50 +161,29 @@ static NSString *const kShareOptionIPadCoordinates = @"iPadCoordinates";
     }
 
     dispatch_async(dispatch_get_main_queue(), ^(void){
-      // iPad on iOS >= 8 needs a different approach
-      if ([UIDevice currentDevice].userInterfaceIdiom == UIUserInterfaceIdiomPad) {
-        NSString* iPadCoords = [self getIPadPopupCoordinates];
-        if (iPadCoords != nil && ![iPadCoords isEqual:@"-1,-1,-1,-1"]) {
-          CGRect rect;
-          if ([iPadCoordinates count] == 4) {
+      UIViewController *topVC = [self getTopMostViewController];
 
-            rect = CGRectMake((int) [[iPadCoordinates objectAtIndex:0] integerValue], (int) [[iPadCoordinates objectAtIndex:1] integerValue], (int) [[iPadCoordinates objectAtIndex:2] integerValue], (int) [[iPadCoordinates objectAtIndex:3] integerValue]);
-          } else {
-            NSArray *comps = [iPadCoords componentsSeparatedByString:@","];
-            rect = [self getPopupRectFromIPadPopupCoordinates:comps];
-          }
-          if ([activityVC respondsToSelector:@selector(popoverPresentationController)]) {
-#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 80000 // iOS 8.0 supported
-            activityVC.popoverPresentationController.sourceView = self.webView;
-            activityVC.popoverPresentationController.sourceRect = rect;
-#endif
-          } else {
-            _popover = [[UIPopoverController alloc] initWithContentViewController:activityVC];
-            _popover.delegate = self;
-            [_popover presentPopoverFromRect:rect inView:self.webView permittedArrowDirections:UIPopoverArrowDirectionAny animated:YES];
-          }
-        } else if ([activityVC respondsToSelector:@selector(popoverPresentationController)]) {
-#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 80000 // iOS 8.0 supported
-          activityVC.popoverPresentationController.sourceView = self.webView;
-          // position the popup at the bottom, just like iOS < 8 did (and iPhone still does on iOS 8)
-          CGRect rect;
-          if ([iPadCoordinates count] == 4) {
-            NSLog([[NSString alloc] initWithFormat:@"test %d", [[iPadCoordinates objectAtIndex:0] integerValue]]);
-            rect = CGRectMake((int) [[iPadCoordinates objectAtIndex:0] integerValue], (int) [[iPadCoordinates objectAtIndex:1] integerValue], (int) [[iPadCoordinates objectAtIndex:2] integerValue], (int) [[iPadCoordinates objectAtIndex:3] integerValue]);
-          } else {
-            NSArray *comps = [NSArray arrayWithObjects:
-                               [NSNumber numberWithInt:(self.viewController.view.frame.size.width/2)-200],
-                               [NSNumber numberWithInt:self.viewController.view.frame.size.height],
-                               [NSNumber numberWithInt:400],
-                               [NSNumber numberWithInt:400],
-                               nil];
-            rect = [self getPopupRectFromIPadPopupCoordinates:comps];
-          }
-          activityVC.popoverPresentationController.sourceRect = rect;
-#endif
-        }
+      if ([UIDevice currentDevice].userInterfaceIdiom == UIUserInterfaceIdiomPad) {
+        activityVC.popoverPresentationController.sourceView = self.webView;
+        CGFloat viewWidth = self.viewController.view.frame.size.width;
+        CGFloat viewHeight = self.viewController.view.frame.size.height;
+        activityVC.popoverPresentationController.sourceRect = CGRectMake(viewWidth / 2.0, viewHeight - 1, 1, 1);
+        [topVC presentViewController:activityVC animated:YES completion:nil];
+      } else {
+        // Fix TG-3119: In scene-based apps with Firebase, the root VC's
+        // modalPresentationStyle resolves to formSheet due to Firebase's method
+        // swizzling combined with UIApplicationSceneManifest. This causes
+        // UIActivityViewController to present as popover on iPhone.
+        // Present from a transparent fullScreen wrapper to force bottom sheet.
+        _shareTopVC = topVC;
+        UIViewController *wrapper = [[UIViewController alloc] init];
+        wrapper.modalPresentationStyle = UIModalPresentationOverFullScreen;
+        wrapper.view.backgroundColor = [UIColor clearColor];
+
+        [topVC presentViewController:wrapper animated:NO completion:^{
+          [wrapper presentViewController:activityVC animated:YES completion:nil];
+        }];
       }
-      [[self getTopMostViewController] presentViewController:activityVC animated:YES completion:nil];
     });
 }
 
@@ -434,11 +420,42 @@ static NSString *const kShareOptionIPadCoordinates = @"iPadCoordinates";
 }
 
 - (UIViewController*) getTopMostViewController {
-  UIViewController *presentingViewController = [[UIApplication sharedApplication] keyWindow].rootViewController;
-  while (presentingViewController.presentedViewController != nil) {
-    presentingViewController = presentingViewController.presentedViewController;
+  UIWindow *activeWindow = nil;
+
+  if (@available(iOS 15.0, *)) {
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+      if ([scene isKindOfClass:[UIWindowScene class]] &&
+          scene.activationState == UISceneActivationStateForegroundActive) {
+        UIWindowScene *windowScene = (UIWindowScene *)scene;
+        activeWindow = windowScene.keyWindow;
+        if (activeWindow) break;
+      }
+    }
+  } else if (@available(iOS 13.0, *)) {
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+      if ([scene isKindOfClass:[UIWindowScene class]] &&
+          scene.activationState == UISceneActivationStateForegroundActive) {
+        UIWindowScene *windowScene = (UIWindowScene *)scene;
+        for (UIWindow *window in windowScene.windows) {
+          if (window.isKeyWindow) {
+            activeWindow = window;
+            break;
+          }
+        }
+        if (activeWindow) break;
+      }
+    }
   }
-  return presentingViewController;
+
+  if (!activeWindow) {
+    activeWindow = [UIApplication sharedApplication].keyWindow;
+  }
+
+  UIViewController *topVC = activeWindow.rootViewController;
+  while (topVC.presentedViewController != nil) {
+    topVC = topVC.presentedViewController;
+  }
+  return topVC;
 }
 
 - (NSString*) getBasenameFromAttachmentPath:(NSString*)path {
