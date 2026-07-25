@@ -41,13 +41,13 @@
       </feature>
     </config-file>
 
-    <preference name="PHOTO_LIBRARY_ADD_USAGE_DESCRIPTION" default="This app requires photo library access to function properly." />
+    <preference name="PHOTO_LIBRARY_ADD_USAGE_DESCRIPTION" default="Photo library write-access is required to save the image you choose as your avatar." />
     <config-file target="*-Info.plist" parent="NSPhotoLibraryAddUsageDescription">
       <string>$PHOTO_LIBRARY_ADD_USAGE_DESCRIPTION</string>
     </config-file>
 
-    <preference name="PHOTO_LIBRARY_USAGE_DESCRIPTION" default="This app requires photo library access to function properly." />
-    <config-file target ="*-Info.plist" parent="NSPhotoLibraryUsageDescription">
+    <preference name="PHOTO_LIBRARY_USAGE_DESCRIPTION" default="Photo library access is required to choose an image to use as your avatar." />
+    <config-file target="*-Info.plist" parent="NSPhotoLibraryUsageDescription">
       <string>$PHOTO_LIBRARY_USAGE_DESCRIPTION</string>
     </config-file>
 
